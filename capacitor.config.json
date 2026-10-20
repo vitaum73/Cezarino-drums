@@ -1,0 +1,6 @@
+{
+  "appId": "br.vitor.drumcoach",
+  "appName": "DrumCoach",
+  "webDir": "www",
+  "android": { "allowMixedContent": false }
+}

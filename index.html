@@ -3078,6 +3078,34 @@ function lineSvg(pts, o) {
 }
 
 function renderStats() {
+  renderStatsMain();
+  $('#st-body').insertAdjacentHTML('beforeend', backupHtml());
+}
+function backupHtml() {
+  return card('Backup dos seus dados', 'Guarda o histórico, os treinos personalizados e as notas num arquivo ou texto. Use para trocar de aparelho ou antes de desinstalar. Os áudios das gravações não entram (salve-os em Gravações).',
+    '<div class="btnrow2"><button class="ghost" id="bk-file">Salvar arquivo</button><button class="ghost" id="bk-copy">Copiar texto</button></div>' +
+    '<textarea class="txt" id="bk-text" rows="3" style="height:auto;padding:10px 14px" placeholder="Para restaurar: cole aqui o texto do backup"></textarea>' +
+    '<div class="btnrow2"><button class="ghost" id="bk-restore">Restaurar do texto</button><label class="ghost" style="display:grid;place-items:center;cursor:pointer">Abrir arquivo<input type="file" id="bk-pick" accept=".json,application/json,text/plain" hidden></label></div>');
+}
+function backupJson() {
+  const docs = [];
+  for (const [id, data] of S.docs) if (/^(ex|day|ses|plan|pl)_/.test(id)) docs.push({ id, data });
+  return JSON.stringify({ app: 'drumcoach', v: 1, ts: Date.now(), docs });
+}
+async function backupRestore(text) {
+  let o; try { o = JSON.parse(text); } catch (e) { o = null; }
+  if (!o || o.app !== 'drumcoach' || !Array.isArray(o.docs)) { toast('Isso não parece um backup do DrumCoach.'); return; }
+  if (!S.col) { toast('Sem conta de armazenamento nesta visita: nada foi restaurado.'); return; }
+  let n = 0;
+  for (const x of o.docs) {
+    if (!x || !/^(ex|day|ses|plan|pl)_[\w.-]+$/.test(x.id) || !x.data || typeof x.data !== 'object') continue;
+    const cur = S.docs.get(x.id);
+    if (cur && typeof cur.sec === 'number' && typeof x.data.sec === 'number' && cur.sec >= x.data.sec) continue;
+    try { await S.col.doc(x.id).set(x.data); S.docs.set(x.id, x.data); n++; } catch (e) { /* segue */ }
+  }
+  toast(n + ' registros restaurados.'); renderStats();
+}
+function renderStatsMain() {
   const D = statsData(), box = $('#st-body');
   const auto = '<div class="setrow"><span>Registrar treino automaticamente</span><button class="chip" id="st-auto" aria-pressed="' + autoLogOn() + '">' + (autoLogOn() ? 'Sim' : 'Não') + '</button></div>';
   if (!S.col) { box.innerHTML = auto + '<div class="card"><h3>Sem registros nesta visita</h3><p class="why">Para guardar o histórico, abra o app pelo link do Claude ou pelo app instalado. Aqui o tempo não fica salvo.</p></div>'; return; }
@@ -3170,7 +3198,25 @@ function renderStats() {
   box.innerHTML = h;
 }
 function openStats() { renderStats(); show('stats'); }
-$('#st-body').addEventListener('click', ev => {
+$('#st-body').addEventListener('change', ev => {
+  if (ev.target.id !== 'bk-pick' || !ev.target.files[0]) return;
+  const r = new FileReader(); r.onload = () => backupRestore(String(r.result)); r.readAsText(ev.target.files[0]);
+});
+$('#st-body').addEventListener('click', async ev => {
+  const id = ev.target.id;
+  if (id === 'bk-copy') {
+    const j = backupJson();
+    try { await navigator.clipboard.writeText(j); toast('Backup copiado. Cole num lugar seguro (bloco de notas, e-mail para você).'); }
+    catch (e) { const ta = $('#bk-text'); ta.value = j; ta.select(); toast('Selecione e copie o texto que apareceu na caixa.'); }
+    return;
+  }
+  if (id === 'bk-file') {
+    const blob = new Blob([backupJson()], { type: 'application/json' }), filename = 'drumcoach-backup-' + dayKey() + '.json';
+    try { if (S.dl) await S.dl.save({ filename, data: blob }); else { const a = el('a'); a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove(); } }
+    catch (e) { if (!e || e.code !== 'declined') toast('Não consegui salvar o arquivo. Use "Copiar texto".'); }
+    return;
+  }
+  if (id === 'bk-restore') { backupRestore($('#bk-text').value.trim()); return; }
   const b = ev.target.closest('#st-auto');
   if (b) { store.set('autolog', !autoLogOn()); renderStats(); return; }
   const c = ev.target.closest('#st-exchips .chip');
