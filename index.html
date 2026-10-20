@@ -345,7 +345,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:28px;margin:0}
       </div>
       <div class="chips" id="p-vars">
         <span class="chips" id="p-vars-vr" style="display:contents"><button class="chip" id="p-swap" aria-pressed="false">Mãos: normal</button>
-        <button class="chip" id="p-rev" aria-pressed="false">Ordem: normal</button></span>
+        <button class="chip" id="p-rev" aria-pressed="false">Ordem: normal</button><button class="chip" id="p-acc" aria-pressed="false">Acentos: normais</button><button class="chip" id="p-pp" aria-pressed="false">Ida e volta: não</button></span>
         <button class="chip" id="p-autolog" aria-pressed="true">Registrar treino: sim</button>
       </div>
       <div class="clock">
@@ -393,7 +393,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:28px;margin:0}
       <div class="eyebrow" style="padding-top:0">Sequência rápida</div>
       <input type="text" class="txt" id="pe-seq" placeholder="1-2-3-3-2-1" autocomplete="off" autocapitalize="off" aria-label="Sequência de rudimentos">
       <div class="btnrow2"><button class="ghost" id="pe-apply">Montar</button><button class="ghost" id="pe-mirror">Ida e volta</button></div>
-      <p class="hint">Use os números dos rudimentos (1 a 41). Coloque <b>i</b> depois do número para tocar invertido e <b>m</b> para trocar as mãos: 1-2-3i-3m-2-1.</p>
+      <p class="hint">Use os números dos rudimentos (1 a 41). Depois do número: <b>i</b> toca de trás para frente, <b>m</b> troca as mãos, <b>a</b> inverte os acentos e <b>v</b> faz ida e volta. Ex.: 1-2-3i-3m-2-1.</p>
       <p class="hint" id="pe-msg"></p>
     </div>
     <div class="eyebrow">Passos</div>
@@ -636,20 +636,34 @@ function parseTrack(lane, text, total) {
 const SWAP = { D: 'E', E: 'D', d: 'e', e: 'd', F: 'f', f: 'F', G: 'g', g: 'G', H: 'h', h: 'H' };
 function variantTrack(text, v) {
   let c = text.replace(/[ |]/g, '');
-  if (v && v.swap) c = c.split('').map(ch => SWAP[ch] || ch).join('');
-  if (v && v.rev) c = c.split('').reverse().join('');
+  if (!v) return c;
+  if (v.swap) c = c.split('').map(ch => SWAP[ch] || ch).join('');
+  if (v.acc) c = accMirror(c);
+  if (v.rev) c = c.split('').reverse().join('');
+  if (v.pp) c = c + c.split('').reverse().join('');      // ida e volta: o padrão e logo depois ele de trás para frente
   return c;
 }
+/* espelha só os acentos: cada nota segue com a mão que tinha na ordem, mas o desenho de acentos (e de rests) anda de trás para frente */
+const KIND = { D: 'D', d: 'd', E: 'D', e: 'd', F: 'F', f: 'F', G: 'G', g: 'G', H: 'H', h: 'H' };
+const WITH_HAND = { D: ['D', 'E'], d: ['d', 'e'], F: ['F', 'f'], G: ['G', 'g'], H: ['H', 'h'] };
+function accMirror(c) {
+  const hands = [];
+  for (const ch of c) if (KIND[ch]) hands.push(/[DdFGH]/.test(ch) ? 0 : 1);
+  const kinds = c.split('').map(ch => KIND[ch] || ch).reverse();
+  let k = 0;
+  return kinds.map(ch => WITH_HAND[ch] ? WITH_HAND[ch][hands[k++]] : ch).join('');
+}
+const VKEYS = ['swap', 'rev', 'acc', 'pp'];
 function hasHands(e) { return Object.values(e.tracks).some(tr => /[DdEeFfGgHh]/.test(tr)); }
 function buildPattern(e, v) {
-  const total = e.stepsPerBeat * e.beats;
+  const total = e.stepsPerBeat * e.beats * (v && v.pp ? 2 : 1);
   const notes = [];
   for (const lane of Object.keys(e.tracks)) notes.push(...parseTrack(lane, variantTrack(e.tracks[lane], v), total));
   const lanes = LANES.filter(l => notes.some(n => n.lane === l));
   return {
     id: e.id, category: e.category, group: e.group || null, title: e.title, description: e.description || '',
-    level: e.level || 1, bpm: e.bpm || 70, spb: e.stepsPerBeat, beats: e.beats,
-    bpb: e.beatsPerBar || Math.min(4, e.beats), total, notes, lanes, variant: v && (v.swap || v.rev) ? { swap: !!v.swap, rev: !!v.rev } : null
+    level: e.level || 1, bpm: e.bpm || 70, spb: e.stepsPerBeat, beats: e.beats * (v && v.pp ? 2 : 1),
+    bpb: e.beatsPerBar || Math.min(4, e.beats), total, notes, lanes, variant: v && VKEYS.some(k => v[k]) ? { swap: !!v.swap, rev: !!v.rev, acc: !!v.acc, pp: !!v.pp } : null
   };
 }
 
@@ -1757,7 +1771,7 @@ function recUi() {
 }
 
 /* ----- telas ----- */
-function vrLabel(v) { return v ? [v.swap ? 'mãos trocadas' : '', v.rev ? 'invertido' : ''].filter(Boolean).join(', ') : ''; }
+function vrLabel(v) { return v ? [v.swap ? 'mãos trocadas' : '', v.rev ? 'invertido' : '', v.acc ? 'acentos invertidos' : '', v.pp ? 'ida e volta' : ''].filter(Boolean).join(', ') : ''; }
 function recTitle(d) {
   if (d.ex) { const e = EXERCISES.find(x => x.id === d.ex); return (e ? e.title : d.ex) + (d.ref && d.ref.vr ? ' (' + vrLabel(d.ref.vr) + ')' : ''); }
   return d.name || 'Gravação livre';
@@ -1884,7 +1898,7 @@ $('#r-go').addEventListener('click', async () => {
 /* ================= PRÁTICA ================= */
 const TICKS = ['Tick: não', 'Tick: divisões', 'Tick: notas'];
 const GOALS = [0, 2, 5, 10, 15, 20, 30];
-const P = { pat: null, kit: 'PAD', bpm: 70, metro: true, count: true, rec: store.get('prec', false), t0: 0, s0: 0, acc: 0, goal: store.get('goal', 0), goalDone: false, vr: { swap: false, rev: false }, plan: null, vsegs: [], tick: store.get('tick', 0), demo: store.get('demo', true), live: store.get('live', 0), auto: store.get('auto', false), segs: [], recStarted: false, playing: false, seq: null, timer: 0, raf: 0, delay: store.get('delay', 0), restart: 0 };
+const P = { pat: null, kit: 'PAD', bpm: 70, metro: true, count: true, rec: store.get('prec', false), t0: 0, s0: 0, acc: 0, goal: store.get('goal', 0), goalDone: false, vr: { swap: false, rev: false, acc: false, pp: false }, plan: null, vsegs: [], tick: store.get('tick', 0), demo: store.get('demo', true), live: store.get('live', 0), auto: store.get('auto', false), segs: [], recStarted: false, playing: false, seq: null, timer: 0, raf: 0, delay: store.get('delay', 0), restart: 0 };
 
 function pressed(btn, on) { btn.setAttribute('aria-pressed', on ? 'true' : 'false'); }
 
@@ -1902,6 +1916,9 @@ function renderStick() {
   $('#p-swap').hidden = !hands;
   pressed($('#p-swap'), P.vr.swap); $('#p-swap').textContent = 'Mãos: ' + (P.vr.swap ? 'trocadas' : 'normal');
   pressed($('#p-rev'), P.vr.rev); $('#p-rev').textContent = 'Ordem: ' + (P.vr.rev ? 'invertida' : 'normal');
+  $('#p-acc').hidden = !hands;
+  pressed($('#p-acc'), P.vr.acc); $('#p-acc').textContent = 'Acentos: ' + (P.vr.acc ? 'invertidos' : 'normais');
+  pressed($('#p-pp'), P.vr.pp); $('#p-pp').textContent = 'Ida e volta: ' + (P.vr.pp ? 'sim' : 'não');
 }
 function applyVariant() {
   const e = EXERCISES.find(x => x.id === P.pat.id), was = P.playing;
@@ -1917,7 +1934,7 @@ function openPractice(id) {
   const e = EXERCISES.find(x => x.id === id);
   P.plan = null; P.live = store.get('live', 0); $('#p-plan').hidden = true; $('#p-livec').hidden = false;
   const sv = store.get('vr_' + id, null);
-  P.vr = { swap: !!(sv && sv.swap && hasHands(e)), rev: !!(sv && sv.rev) };
+  P.vr = { swap: !!(sv && sv.swap && hasHands(e)), rev: !!(sv && sv.rev), acc: !!(sv && sv.acc && hasHands(e)), pp: !!(sv && sv.pp) };
   P.pat = prepPattern(buildPattern(e, P.vr));
   P.kit = (CATS.find(c => c.id === e.category) || {}).kit || 'PAD';
   P.bpm = clamp(store.get('bpm_' + id, P.pat.bpm), 30, 220);
@@ -2107,6 +2124,8 @@ $('#p-demo').addEventListener('click', () => { P.demo = !P.demo; store.set('demo
 $('#p-livec').addEventListener('click', () => { P.live = (P.live + 1) % 3; store.set('live', P.live); if (P.live) demoOff(); syncPracticeUi(); });
 $('#p-swap').addEventListener('click', () => { P.vr.swap = !P.vr.swap; applyVariant(); });
 $('#p-rev').addEventListener('click', () => { P.vr.rev = !P.vr.rev; applyVariant(); });
+$('#p-acc').addEventListener('click', () => { P.vr.acc = !P.vr.acc; applyVariant(); });
+$('#p-pp').addEventListener('click', () => { P.vr.pp = !P.vr.pp; applyVariant(); });
 $('#p-autolog').addEventListener('click', () => { store.set('autolog', !autoLogOn()); syncPracticeUi(); });
 $('#p-auto').addEventListener('click', () => { P.auto = !P.auto; store.set('auto', P.auto); syncPracticeUi(); });
 $('#p-count').addEventListener('click', () => { P.count = !P.count; pressed($('#p-count'), P.count); });
@@ -2737,13 +2756,13 @@ function parseSeq(text) {
     const n = Number(m[1]);
     if (n < 1 || n > RUD.length) { bad.push(tok); continue; }
     const f = m[2];
-    if (f.replace(/[im]/g, '')) { bad.push(tok); continue; }
-    out.push({ n, rev: f.includes('i'), swap: f.includes('m') });
+    if (f.replace(/[imav]/g, '')) { bad.push(tok); continue; }
+    out.push({ n, rev: f.includes('i'), swap: f.includes('m'), acc: f.includes('a'), pp: f.includes('v') });
   }
   return { out, bad };
 }
 function defaultLoops(e) { return Math.max(1, Math.round(16 / (e.beats || 4))); }
-function newStep(e, o) { return { ex: e.id, swap: !!(o && o.swap) && hasHands(e), rev: !!(o && o.rev), loops: (o && o.loops) || defaultLoops(e) }; }
+function newStep(e, o) { return { ex: e.id, swap: !!(o && o.swap) && hasHands(e), rev: !!(o && o.rev), acc: !!(o && o.acc) && hasHands(e), pp: !!(o && o.pp), loops: (o && o.loops) || defaultLoops(e) }; }
 function allPlans() {
   const arr = S.col ? Array.from(S.docs.values()).filter(d => d && d.t === 'plan') : PLN.local;
   return arr.slice().sort((a, b) => a.ts - b.ts);
@@ -2760,11 +2779,11 @@ async function deletePlan(id) {
 }
 function planSeconds(p) {
   let s = 0;
-  for (const it of p.items) { const e = EXERCISES.find(x => x.id === it.ex); if (!e) continue; s += it.loops * e.stepsPerBeat * e.beats * 60 / (p.bpm * e.stepsPerBeat) + (p.pause ? (e.beatsPerBar || Math.min(4, e.beats)) * 60 / p.bpm : 0); }
+  for (const it of p.items) { const e = EXERCISES.find(x => x.id === it.ex); if (!e) continue; s += it.loops * (it.pp ? 2 : 1) * e.stepsPerBeat * e.beats * 60 / (p.bpm * e.stepsPerBeat) + (p.pause ? (e.beatsPerBar || Math.min(4, e.beats)) * 60 / p.bpm : 0); }
   return s;
 }
 const exById = id => EXERCISES.find(x => x.id === id);
-function stepLabel(it) { return vrLabel({ swap: it.swap, rev: it.rev }); }
+function stepLabel(it) { return vrLabel(it); }
 
 /* ----- lista ----- */
 function openPlans() {
@@ -2808,13 +2827,16 @@ function renderPlanEditor() {
   p.items.forEach((it, i) => {
     const e = exById(it.ex); if (!e) return;
     const num = exNum(e);
-    const c = el('div', 'pstep', '<div class="ph"><span class="nn num"></span><b></b><span class="pctl"><button class="mini" data-a="up" aria-label="Subir">&#8593;</button><button class="mini" data-a="dn" aria-label="Descer">&#8595;</button><button class="mini warn" data-a="rm" aria-label="Remover">&#10005;</button></span></div><div class="pb"><span class="lp"><button class="step" data-a="lm" aria-label="Menos repetições">&minus;</button><b class="num"></b><button class="step" data-a="lp" aria-label="Mais repetições">+</button></span><button class="chip" data-a="sw"></button><button class="chip" data-a="rv"></button></div>');
+    const c = el('div', 'pstep', '<div class="ph"><span class="nn num"></span><b></b><span class="pctl"><button class="mini" data-a="up" aria-label="Subir">&#8593;</button><button class="mini" data-a="dn" aria-label="Descer">&#8595;</button><button class="mini warn" data-a="rm" aria-label="Remover">&#10005;</button></span></div><div class="pb"><span class="lp"><button class="step" data-a="lm" aria-label="Menos repetições">&minus;</button><b class="num"></b><button class="step" data-a="lp" aria-label="Mais repetições">+</button></span><button class="chip" data-a="sw"></button><button class="chip" data-a="rv"></button><button class="chip" data-a="ac"></button><button class="chip" data-a="pp"></button></div>');
     $('.nn', c).textContent = num || (i + 1);
     $('b', c).textContent = e.title;
     $('.lp b', c).textContent = it.loops + '×';
     const sw = $('[data-a=sw]', c), rv = $('[data-a=rv]', c);
     sw.textContent = 'Mãos: ' + (it.swap ? 'trocadas' : 'normal'); pressed(sw, it.swap); sw.hidden = !hasHands(e);
     rv.textContent = 'Ordem: ' + (it.rev ? 'invertida' : 'normal'); pressed(rv, it.rev);
+    const ac = $('[data-a=ac]', c), pp = $('[data-a=pp]', c);
+    ac.textContent = 'Acentos: ' + (it.acc ? 'invertidos' : 'normais'); pressed(ac, it.acc); ac.hidden = !hasHands(e);
+    pp.textContent = 'Ida e volta: ' + (it.pp ? 'sim' : 'não'); pressed(pp, it.pp);
     c.dataset.i = i;
     box.appendChild(c);
   });
@@ -2835,6 +2857,8 @@ $('#pe-steps').addEventListener('click', ev => {
   else if (a === 'lp') it.loops = clamp(it.loops + 1, 1, 99);
   else if (a === 'sw') it.swap = !it.swap;
   else if (a === 'rv') it.rev = !it.rev;
+  else if (a === 'ac') it.acc = !it.acc;
+  else if (a === 'pp') it.pp = !it.pp;
   renderPlanEditor();
 });
 $('#pe-apply').addEventListener('click', () => {
@@ -2897,14 +2921,14 @@ $('#pe-play').addEventListener('click', async () => { await planSave(); const id
 /* ----- tocar o treino (reaproveita a tela de prática) ----- */
 function planItemPat(it) {
   const e = exById(it.ex); if (!e) return null;
-  return prepPattern(buildPattern(e, { swap: !!it.swap && hasHands(e), rev: !!it.rev }));
+  return prepPattern(buildPattern(e, { swap: !!it.swap && hasHands(e), rev: !!it.rev, acc: !!it.acc && hasHands(e), pp: !!it.pp }));
 }
 function openPlanPractice(id) {
   let plan = getPlan(id);
   if (!plan || !plan.items.some(it => exById(it.ex))) { toast('Esse treino não existe mais.'); setTimeout(back, 0); return; }
   plan = Object.assign({}, plan, { items: plan.items.filter(it => exById(it.ex)) });
   P.plan = { plan, si: 0, vi: 0, segIdx: -1, segT0: 0, total: 0, endAt: 0, loopShown: '' };
-  P.vr = { swap: false, rev: false };
+  P.vr = { swap: false, rev: false, acc: false, pp: false };
   P.live = 0;
   P.bpm = plan.bpm;
   $('#p-plan').hidden = false; $('#p-livec').hidden = true;
